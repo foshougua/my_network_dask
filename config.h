@@ -10,10 +10,10 @@
 
 #define SERVER_PORT 24567
 #define SERVER_IP "127.0.0.1"
+
 #define BLOCK_SIZE (4*1024)
-#define BUFF_SIZE 1024
+#define BUFF_SIZE 4096 
 #define MAXEVENTS 1024
 #define MAX_EVENT_NUMBER 1024
-
 
 #endif

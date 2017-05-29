@@ -17,12 +17,6 @@
 #include<cstdlib>
 #include"config.h"
 
-void addfd(int epfd,int fd){
-    struct epoll_event event;
-    event.data.fd = fd;
-    event.events = EPOLLIN;
-    epoll_ctl(epfd,EPOLL_CTL_ADD,fd,&event);
-}
 
 int main(int argc,char **argv){
 
@@ -57,7 +51,9 @@ int main(int argc,char **argv){
         std::cerr<<"bind error!"<<std::endl;
         exit(1);
     }
+
     ret = listen(listenfd,10);//监听
+
     if(ret == -1){
         std::cerr<<"listen error!"<<std::endl;
         exit(1);

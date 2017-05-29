@@ -2,17 +2,20 @@
 	> File Name: test.cpp
 	> Author: 
 	> Mail: 
-	> Created Time: 2017年05月13日 星期六 09时49分21秒
+	> Created Time: 2017年05月29日 星期一 09时36分15秒
  ************************************************************************/
 
 #include<iostream>
+#include<string>
+#include<cstdio>
 #include<cstring>
-#include<fstream>
-#include"task.h"
-#include"file.h"
+#include<map>
 int main(){
-    std::ifstream in;
-    in.open("test.txt");
-    in.seekg(0,std::ios::beg);
-    std::cout<<"location = "<<in.tellg()<<std::endl;
+    std::map<std::string,std::string> m;
+    m["book1"] = std::string("wahaha");
+    m["book2"] = std::string("liuliu");
+    std::map<std::string,std::string>::iterator it;
+    for(it = m.begin(); it != m.end(); it++){
+        std::cout<<it->first<<std::endl<<it->second<<std::endl;
+    }
 }

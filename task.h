@@ -7,67 +7,70 @@
 
 #ifndef _TASH_H
 #define _TASH_H
-
+#include<sys/types>
+#include<sys/socket.h>
 #include<fcntl.h>
 #include<unistd.h>
 #include<cstdio>
+#include<cstring>
 #include<cstdlib>
 #include<iostream>
 #include<fstream>
 #include<exception>
-#include<cstring>
 #include<string>
 #include<mutex>
 #include<fstream>
 #include"net.h"
 #include"config.h"
-#include"file.h"
 
 //该任务要实现的是发送某个文件的block_size大小至tcp连接的描述符fd中
 //每一个任务都需要建立一个socket链接，当该任务进行完时，就要关闭该socket链接
 
 class Task{
 public:
-    Task():in("test.txt"),block(1),size(BLOCK_SIZE),server_ip(SERVER_IP),server_port(SERVER_PORT){}
+    //Task(std::string file_name,std::string server_ip,int server_port):file_name_(file_name),server_ip_(server_ip),server_port_(server_port){}
+    
+    Task(){}
 
-    Task(std::string file_name,int n_block,int block_size = BLOCK_SIZE,std::string ip = std::string(SERVER_IP),int port = SERVER_PORT):in(file_name),block(n_block),size(block_size),server_ip(ip),server_port(port){}
-
-    void process(){        
+    void process(std::string file_name_,std::string server_ip_,int server_port_){        
         try{
             char buff[BUFF_SIZE];
-            //新创建一个socket，在这个块传输完成之后关闭
+
+            //新创建一个socket，在这个块传输完成之后关闭(析构函数)
             Client cli;
             cli.create_socket();
-            cli.connect_to_server("127.0.0.1",server_port);
+            cli.connect_to_server(server_ip_,server_port_);
             int sockfd = cli.get_fd();
 
-            in.open_file();//打开文件
+            //打开文件
+            std::ifstream in(file_name_);
 
-            int file_size = in.get_file_size();//文件的总大小
-            int block_number = in.get_block_number();//总的块数
+            //获取文件大小
+            in.seekg(0,std::ios::end);
+            int total = in.tellg();
+            in.seekg(0,std::ios::beg);
 
-            in.get_file().seekg((block - 1)*size,std::ios::beg);
-            std::cout<<"location = "<<in.get_file().tellg()<<std::endl;
-            long total = 0;
-            long temp = 0;
-
-            if(block < block_number){
-                total = size;
+            //先发送给文件的md5值
+            CMessageDigestAlgorithm5 m;
+            std::string md5 = m.Encode(in);
+            sprintf(buff,"*2\r\n$10\r\nsendpieces\r\n$%d\r\n%s\r\n",2,"SENDPIECES",strlen(md5.c_str()),md5.c_str());
+            if(send(sockfd,buff,strlen(buff),0) == -1){
+                std::cerr<<"send one block error!"<<std::endl;
+                throw;
             }
-            else if(block == block_number){
-                total = file_size - (block-1)*size;
-            }
-            else{
-                return;
-            }
+            memset(buff,0,sizeof(buff));
 
+            int temp = 0;
             while(1){
+
                 if(total > BUFF_SIZE)
                     temp = BUFF_SIZE;
                 else
                     temp = total;
+
                 total -= temp;
-                in.get_file().read(buff,temp);//将数据从文件中读出来
+
+                in.read(buff,temp);//将数据从文件中读出来
                 int nwrite = write(sockfd,buff,temp);//再将读入buff中的数据写入sockfd
                 if(nwrite == -1){
                     std::cerr<<"write to sockfd throw error!"<<std::endl;
@@ -76,6 +79,10 @@ public:
                 memset(buff,0,sizeof(buff)/sizeof(char));
                 std::cout<<"total = "<<total<<std::endl;
                 if(total <= 0){
+                    in.close();
+                    OperateFile op;
+                    op.DeleteFile(file_name_);
+                    std::cout<<file_name_<<" has delete"<<std::endl;
                     return;
                 }
             }
@@ -85,16 +92,12 @@ public:
         }
     }
 
-    ~Task(){
-    }
+    ~Task(){}
 
-private:
-    std::mutex mut;
-    File in;
-    int block;
-    long size;
-    std::string server_ip;
-    int server_port;
+/*private:
+    std::string file_name_;
+    std::string server_ip_;
+    int server_port_;*/
 };
 
 #endif
