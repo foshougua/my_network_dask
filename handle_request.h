@@ -14,6 +14,7 @@
 #include<cstring>
 #include<vector>
 #include<string>
+#include<fstream>
 #include"file.h"
 #include"redis_operator.h"
 
@@ -232,27 +233,57 @@ void HandleRequest::ReplyPut(int sockfd,int next_recv_size){
     return;
 }
 
+//具体的接受每一个分块
 void HandleRequest::ReplySendPieces(int sockfd,int next_recv_size){
-    char buff[1024];
-    Recvn(sockfd,buff,next_recv_size,0);
+    char buff[4096];
     
-    //拿出md5值
+    //首先拿出md5值
+    Recvn(sockfd,buff,next_recv_size,0);
     std::string md5;
-    for(int i = 1; i <= 32; i++){
+    for(int i = 1; buff[i] != '\r'; i++){
         md5.push_back(buff[i]);
     }
     memset(buff,0,sizeof(buff));
-    RedisOperator redis_op;
-    //拿出文件的大小
+
+    //接着拿出文件的大小
+    Recvn(sockfd,buff,11,0);
     std::string file_size_str;
     int file_size;
-    Recvn(sockfd,buff,11,0);
-    for(int i = 1; i <= 8; i++){
+    for(int i = 1; buff[i] != '\r'; i++){
         file_size_str.push_back(buff[i]);
     }
+    std::cout<<"file_size_str = "<<file_size_str<<std::endl;
     file_size = std::stoi(file_size_str);
-    //新建一个文件，并把接收到的文件存入文件(accept目录下)当中
+    memset(buff,0,sizeof(buff));
 
+    
+    //新建一个文件，并把接收到的文件存入文件(accept目录下)当中
+    OperateFile file_op;
+    std::string file_name = std::string("accept//") + md5;
+    file_op.CreateFile(file_name);
+    //打开文件
+    std::ofstream in;
+    in.open(file_name,std::ios::out|std::ios::binary);
+    //开始接受数据并写入文件
+    int total = file_size;
+    int temp = 0;
+    while(1){
+        if(total > 4096)
+            temp = 4096;
+        else
+            temp = total;
+        std::cout<<"total = "<<total<<std::endl;
+        total -= temp;
+
+        Recvn(sockfd,buff,temp,0);//从socket中读取文件
+        printf("%s\n",buff);
+        in.write(buff,temp);//将读取的文件写入文件
+        memset(buff,0,sizeof(buff)/sizeof(char));
+        if(total <= 0){
+            in.close();
+            return;
+        }
+    }
 }
 
 //处理下载文件
@@ -284,18 +315,43 @@ void HandleRequest::ReplyDownLoad(int sockfd,int next_recv_size){
         //拿出file_name
         file_name.push_back(buff[i++]);
     }
-
     //下面根据user_id 和 file_name 拿出分块列表，传送回去
     //先取出当前的历史版本
-    //逐次取出这个历史版本中的md5文件名？？？
-
+    //逐次取出这个历史版本中的md5文件名
+    RedisOperator redis_op;
+    std::vector<std::string> md5_block_vector;//存放所有md5
+    int version;//当前版本号
+    int sum_of_md5;//md5总数
+    version = std::stoi(redis_op.HashGetUsersFileVersion(user_id,file_name));
+    sum_of_md5 = std::stoi(redis_op.HashGetUsersFileMd5Number(user_id,file_name,version));
+    //拿出所有的md5
+    for(int i = 1; i <= sum_of_md5; i++){
+        std::string one_md5;
+        one_md5 = redis_op.HashGetUsersFileMd5(user_id,file_name,version,i);
+        md5_block_vector.push_back(one_md5);
+    }
+    //先发送md5的个数
+    int zero_bit = 8 - JudgeNumberBit(sum_of_md5);//先求出零的位数
+    std::string sum_of_md5_str;
+    while(zero_bit > 0){
+        sum_of_md5_str.push_back('0');
+        zero_bit--;
+    }
+    sum_of_md5_str += std::to_string(sum_of_md5);
+    sprintf(buff,"$%s\r\n",sum_of_md5_str.c_str());
+    Sendn(sockfd,buff,strlen(buff),0);
+    //接着一个接一个的发送md5
+    for(auto it = md5_block_vector.begin(); it != md5_block_vector.end(); it++){
+        sprintf(buff,"*%s\r\n",(*it).c_str());
+        Sendn(sockfd,buff,strlen(buff),0); 
+    }
     return;
 }
 
 //处理下载的具体的块
 void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
     char buff[1024];
-    Recvn(sockfd,buff,20,0);
+    Recvn(sockfd,buff,next_recv_size,0);
     //拿出传送的md5码
     int i = 2;
     std::string md5;

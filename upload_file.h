@@ -97,7 +97,6 @@ UploadFile::UploadFile(std::string user_id,std::string file_name){
 }
 
 //删除所有分块的文件
-//这里可能会产生线程冲突？
 UploadFile::~UploadFile(){
     OperateFile op;
     std::unordered_map<std::string,std::string>::iterator it;
@@ -182,7 +181,7 @@ std::vector<std::string> UploadFile::ReciveBlockList(int sockfd){
     std::cout<<"block_number = "<<block_number<<std::endl;
     memset(buff,0,sizeof(buff));
     //根据分块列表的个数，拿出分块列表
-    //可以每次只拿出一个分块列表直到拿完
+    //每次只拿出一个分块列表直到拿完
     std::vector<std::string> md5_block_vector;
     int block_number_temp = block_number;
     while(block_number_temp > 0){
@@ -208,10 +207,22 @@ std::vector<std::string> UploadFile::ReciveBlockList(int sockfd){
 void UploadFile::SendBlockFile(int sockfd,std::vector<std::string> &block_vector,std::string server_ip,int port){
     std::vector<std::string>::iterator it;
     ThreadPool pool(10);
+
     for(it = block_vector.begin();it != block_vector.end(); ++it){
-        std::string file_name = *it;
+        std::string file_name = md5_and_block[*it];
+        std::cout<<"sendpieces file_name = "<<file_name<<std::endl;
         Task task;
-        pool.addTask(std::bind(&Task::process,&task,file_name,"127.0.0.1",port));
+        //task.process(file_name,server_ip,port);
+        pool.addTask(std::bind(&Task::process,&task,file_name,server_ip,port));
+    }
+
+    while(1){    
+        if (pool.size() == 0){  
+            pool.stop();
+            printf("Now I will exit from main\n"); 
+            return;
+        }  
+        sleep(2);
     }
 }
 
