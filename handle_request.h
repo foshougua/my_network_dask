@@ -350,7 +350,7 @@ void HandleRequest::ReplyDownLoad(int sockfd,int next_recv_size){
 
 //处理下载的具体的块
 void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
-    char buff[1024];
+    char buff[4096];
     Recvn(sockfd,buff,next_recv_size,0);
     //拿出传送的md5码
     int i = 2;
@@ -358,7 +358,41 @@ void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
     while(buff[i] != '\r'){
         md5.push_back(buff[i++]);
     }
-    //根据md5码，拿出对应的文件，然后发送回去？？？
+    RedisOperator redis_op;
+    OperateFile file_op;
+    //根据md5码，拿出对应的文件 
+    //先发送文件的大小
+    std::string file_name = std::string("accept//")+md5;//文件名
+    int file_size = file_op.GetFileSize(file_name);//文件大小
+    int zero_bit = 8 - JudgeNumberBit(file_size);//先求出零的位数
+    std::string file_size_str;
+    while(zero_bit > 0){
+        file_size_str.push_back('0');
+        zero_bit--;
+    }
+    file_size_str += std::to_string(file_size);
+    sprintf(buff,"$%s\r\n",file_size_str.c_str());//11位
+    Sendn(sockfd,buff,strlen(buff),0);//发送文件大小
+    printf("doweloadpieces--send file size str:%s",buff);
+    //接着发送整个文件
+    std::ifstream in(file_name);
+    int temp = 0;
+    while(1){
+        if(file_size > 4096)
+            temp = 4096;
+        else
+            temp = file_size;
+        std::cout<<"temp = "<<temp<<std::endl;
+        file_size -= temp;
+        in.read(buff,temp);//将数据从文件中读出来
+        printf("%s\n",buff);
+        Sendn(sockfd,buff,temp,0);//再将读入buff中的数据写入sockfd
+        memset(buff,0,sizeof(buff));
+        if(file_size <= 0){
+            in.close();
+            return;
+        }
+    }
 }
 
 //处理时光机请求
