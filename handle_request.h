@@ -31,7 +31,6 @@ public:
     void ReplyBack(int sockfd,int next_recv_size);
 private:
     int JudgeNumberBit(int number);
-private:
     int Sendn(int sockfd,char *buff,int size,int flags);
     int Recvn(int sockfd,char *buff,int size,int flags);
 private:
@@ -105,7 +104,8 @@ void HandleRequest::DistributeEvent(int sockfd){
         case SENDPIECES:ReplySendPieces(sockfd,next_recv_size);break;
         case DOWNLOAD:ReplyDownLoad(sockfd,next_recv_size);break;
         case DOWNLOADPIECES:ReplyDownLoadPieces(sockfd,next_recv_size);break;
-        case BACK:ReplyBack(sockfd,next_recv_size);break;
+        case BACK:std:std::cout<<"ReplyBack functional\n"<<std::endl;ReplyBack(sockfd,next_recv_size);break;
+        default:std::cout<<"no method!"<<std::endl;break;
     }
     return;
 }
@@ -351,9 +351,10 @@ void HandleRequest::ReplyDownLoad(int sockfd,int next_recv_size){
 //处理下载的具体的块
 void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
     char buff[4096];
-    Recvn(sockfd,buff,next_recv_size,0);
     //拿出传送的md5码
-    int i = 2;
+    Recvn(sockfd,buff,next_recv_size,0);
+    printf("server recive md5:%s",buff);
+    int i = 1;
     std::string md5;
     while(buff[i] != '\r'){
         md5.push_back(buff[i++]);
@@ -373,7 +374,7 @@ void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
     file_size_str += std::to_string(file_size);
     sprintf(buff,"$%s\r\n",file_size_str.c_str());//11位
     Sendn(sockfd,buff,strlen(buff),0);//发送文件大小
-    printf("doweloadpieces--send file size str:%s",buff);
+    printf("downloadpieces--send file size str:%s",buff);
     //接着发送整个文件
     std::ifstream in(file_name);
     int temp = 0;
@@ -397,9 +398,12 @@ void HandleRequest::ReplyDownLoadPieces(int sockfd,int next_recv_size){
 
 //处理时光机请求
 void HandleRequest::ReplyBack(int sockfd,int next_recv_size){
-    char buff[2048];
-    //这里假设next_recv_size的值小于2048
+    char buff[4096];
+    //这里假设next_recv_size的值小于4096
+    //读取user_id、file_name和back_number
+
     Recvn(sockfd,buff,next_recv_size,0);
+
     std::string user_id;
     int user_id_size;
     std::string file_name;
@@ -428,14 +432,32 @@ void HandleRequest::ReplyBack(int sockfd,int next_recv_size){
     }
     i += 2;//跨过\r\n
     while(buff[i] != '\r'){
+        //拿出back_number
         back_number = (back_number * 10) + (buff[i++] - '0');
     }
+    std::cout<<"user_id = "<<user_id<<std::endl;
+    std::cout<<"file_name = "<<file_name<<std::endl;
+    std::cout<<"back_number = "<<back_number<<std::endl;
     //根据得到的文件名、用户名以及回退的步数修改medata库中相对应的文件的当前版本就可以
+    //同时删除该版本之前的所有版本
     RedisOperator redis_op;
-    std::string key("medata");
-    std::string field = user_id + ":" + file_name + ":" + std::string("version");
-    std::string value = std::to_string(back_number);
-    redis_op.HashSet(key,field,value);
+    //拿出现在的版本
+    int old_version = std::stoi(redis_op.HashGetUsersFileVersion(user_id,file_name));
+    std::cout<<"old_version = "<<old_version<<std::endl;
+    int now_version = old_version - back_number;
+    std::cout<<"now_version = "<<now_version<<std::endl;
+    //修改版本号
+    redis_op.HashDecrbyUsersFileVersion(user_id,file_name,back_number);
+    //删除多余的版本
+    for(int i = now_version + 1; i <= old_version; i++){
+       int md5_number = std::stoi(redis_op.HashGetUsersFileMd5Number(user_id,file_name,i));
+       std::cout<<"md5_number = "<<md5_number<<std::endl;
+       for(int j = 1; j <= md5_number; j++){
+           redis_op.HashDeleteUsersFileMd5(user_id,file_name,i,j);
+       }
+       //这里还要删除该版本的count
+       redis_op.HashDeleteUsersFileVersionCount(user_id,file_name,i);
+    }
     return;
 }
 

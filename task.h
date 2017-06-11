@@ -7,7 +7,7 @@
 
 #ifndef _TASH_H
 #define _TASH_H
-#include<sys/types>
+//#include<sys/types>
 #include<sys/socket.h>
 #include<fcntl.h>
 #include<unistd.h>
@@ -18,71 +18,68 @@
 #include<fstream>
 #include<exception>
 #include<string>
-#include<mutex>
 #include<fstream>
 #include"net.h"
 #include"config.h"
 
 //该任务要实现的是发送某个文件的block_size大小至tcp连接的描述符fd中
 //每一个任务都需要建立一个socket链接，当该任务进行完时，就要关闭该socket链接
-
 class Task{
-public:
-    //Task(std::string file_name,std::string server_ip,int server_port):file_name_(file_name),server_ip_(server_ip),server_port_(server_port){}
-    
+public: 
     Task(){}
-
     void process(std::string file_name_,std::string server_ip_,int server_port_){        
         try{
-            char buff[BUFF_SIZE];
-
+            char buff[4096];
             //新创建一个socket，在这个块传输完成之后关闭(析构函数)
             Client cli;
             cli.create_socket();
             cli.connect_to_server(server_ip_,server_port_);
             int sockfd = cli.get_fd();
 
-            //打开文件
-            std::ifstream in(file_name_);
-
+            OperateFile file_op;
             //获取文件大小
-            in.seekg(0,std::ios::end);
-            int total = in.tellg();
-            in.seekg(0,std::ios::beg);
+            int total = file_op.GetFileSize(file_name_);
 
-            //先发送给文件的md5值
-            CMessageDigestAlgorithm5 m;
-            std::string md5 = m.Encode(in);
-            sprintf(buff,"*2\r\n$10\r\nsendpieces\r\n$%d\r\n%s\r\n",2,"SENDPIECES",strlen(md5.c_str()),md5.c_str());
-            if(send(sockfd,buff,strlen(buff),0) == -1){
-                std::cerr<<"send one block error!"<<std::endl;
-                throw;
-            }
+            //首先发送请求描述符
+            sprintf(buff,"*02\r\n$10\r\nsendpieces\t\t\t\t\t\t\t\t\t\t\r\n$00035\r\n");//40位
+            Sendn(sockfd,buff,strlen(buff),0);
+
+            //接着先发送文件的md5值
+            std::string md5 = file_op.GetFileMd5(file_name_);
+            sprintf(buff,"*%s\r\n",md5.c_str());//35位
+            printf("file md5:%s",buff);
+            Sendn(sockfd,buff,strlen(buff),0);
             memset(buff,0,sizeof(buff));
 
+            //还要发送8个字节的文件大小，用于服务器端接受
+            int zero_bit = 8 - JudgeNumberBit(total);//先求出零的位数
+            std::string file_size;
+            while(zero_bit > 0){
+                file_size.push_back('0');
+                zero_bit--;
+            }
+            file_size += std::to_string(total);
+            sprintf(buff,"$%s\r\n",file_size.c_str());//11位
+            Sendn(sockfd,buff,strlen(buff),0);
+            printf("sendpieces--send file size str:%s",buff);
+            memset(buff,0,sizeof(buff));
+
+            //下面发送文件
+            std::ifstream in(file_name_);
             int temp = 0;
             while(1){
-
-                if(total > BUFF_SIZE)
-                    temp = BUFF_SIZE;
+                if(total > 4096)
+                    temp = 4096;
                 else
                     temp = total;
-
+                std::cout<<"temp = "<<temp<<std::endl;
                 total -= temp;
-
                 in.read(buff,temp);//将数据从文件中读出来
-                int nwrite = write(sockfd,buff,temp);//再将读入buff中的数据写入sockfd
-                if(nwrite == -1){
-                    std::cerr<<"write to sockfd throw error!"<<std::endl;
-                    throw (std::exception());
-                }
-                memset(buff,0,sizeof(buff)/sizeof(char));
-                std::cout<<"total = "<<total<<std::endl;
+                printf("%s\n",buff);
+                Sendn(sockfd,buff,temp,0);//再将读入buff中的数据写入sockfd
+                memset(buff,0,sizeof(buff));
                 if(total <= 0){
                     in.close();
-                    OperateFile op;
-                    op.DeleteFile(file_name_);
-                    std::cout<<file_name_<<" has delete"<<std::endl;
                     return;
                 }
             }
@@ -91,13 +88,42 @@ public:
             exit(1);
         }
     }
-
-    ~Task(){}
-
-/*private:
-    std::string file_name_;
-    std::string server_ip_;
-    int server_port_;*/
+private:
+    int Sendn(int sockfd,char *buff,int size,int flags);
+    int Recvn(int sockfd,char *buff,int size,int flags);
+    int JudgeNumberBit(int number);
 };
+
+int Task::Sendn(int sockfd,char *buff,int size,int flags){
+    char *temp = buff;
+    int result = size;
+    while(result > 0){
+        int recv_num = send(sockfd,temp,result,flags);
+        assert(recv_num != -1);
+        result -= recv_num;
+        temp += recv_num;
+    }
+    return size; 
+}
+
+int Task::Recvn(int sockfd,char *buff,int size,int flags){
+    char *temp = buff;
+    int result = size;
+    while(result > 0){
+        int recv_num = recv(sockfd,temp,result,flags);
+        assert(recv_num != -1);
+        result -= recv_num;
+        temp += recv_num;
+    } 
+}
+
+int Task::JudgeNumberBit(int number){
+    int result = 0;
+    while(number){
+        result++;
+        number /= 10;
+    }
+    return result;
+}
 
 #endif

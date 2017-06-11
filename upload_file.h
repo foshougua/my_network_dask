@@ -207,7 +207,8 @@ std::vector<std::string> UploadFile::ReciveBlockList(int sockfd){
 void UploadFile::SendBlockFile(int sockfd,std::vector<std::string> &block_vector,std::string server_ip,int port){
     std::vector<std::string>::iterator it;
     ThreadPool pool(10);
-
+    if(block_vector.size() == 0)
+        return;
     for(it = block_vector.begin();it != block_vector.end(); ++it){
         std::string file_name = md5_and_block[*it];
         std::cout<<"sendpieces file_name = "<<file_name<<std::endl;

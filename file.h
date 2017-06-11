@@ -47,10 +47,11 @@ int OperateFile::GetFileSize(std::string file_name){
         return size;
     }
     else{
-        std::cerr<<"the file not exit!"<<std::endl;
+        std::cerr<<"get file size: the file not exit!"<<std::endl;
         return 0;
     }
 }
+
 
 //获取文件的分块数
 //取默认块大小
@@ -61,7 +62,8 @@ int OperateFile::GetBlockNumber(std::string file_name){
         return block_number;
     }
     else{
-        std::cerr<<"the file not exit!"<<std::endl;
+        std::cout<<"file_name = "<<file_name<<std::endl;
+        std::cerr<<"get Block number:the file not exit!"<<std::endl;
         return 0;
     }
 }
@@ -178,6 +180,7 @@ bool OperateFile::IsExitFile(std::string file_name){
     return false;
 }
 
+//获取文件的md5码
 std::string OperateFile::GetFileMd5(std::string file_name){
     CMessageDigestAlgorithm5 m5;
     std::ifstream in(file_name);

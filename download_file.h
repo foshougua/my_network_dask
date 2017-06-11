@@ -7,22 +7,23 @@
 
 #ifndef _DOWNLOAD_FILE_H
 #define _DOWNLOAD_FILE_H
-#include<sys/types>
-#include<sys/socket>
+#include<sys/socket.h>
 #include<assert.h>
 #include<string>
 #include<vector>
 #include<map>
 #include<cstdio>
 #include<cstring>
+#include"download_task.h"
+#include"thread_pool.h"
 
 class DownloadFile{
 public:
-    DownloadFile(std::string user_id,std::string file_name_):user_id_(user_id),file_name_(file_name){}
-    ~DownloadFile(){}
+    DownloadFile(std::string user_id,std::string file_name):user_id_(user_id),file_name_(file_name){}
+    ~DownloadFile();
     void SendRequest(int sockfd);//发送 用户名+文件名，服务器受到后，会返回一个分块列表
     std::vector<std::string> ReciveBlockList(int sockfd);//接受这个循环列表,返回 < 偏移量，md5 >
-    void DownloadBlockFile(std::vector<std::string> &block_list);//根据得到的循环列表，多线程请求每个块,并存储
+    void DownloadBlockFile(std::vector<std::string> &block_list,std::string server_ip,int port);//根据得到的循环列表，多线程请求每个块,并存储
     void MergeBlock();//合并得到的文件
 private:
     int Sendn(int sockfd,char *buff,int size,int flags);
@@ -74,7 +75,7 @@ DownloadFile::~DownloadFile(){}
 void DownloadFile::SendRequest(int sockfd){
     char buff[1024];
     char id_and_file[1024];
-    sprintf(id_and_file,"$%ld\r\n%s\r\n$%dl\r\n%s\r\n",user_id_.size(),user_id_.c_str(),file_name_.size(),file_name_.c_str());
+    sprintf(id_and_file,"$%ld\r\n%s\r\n$%ld\r\n%s\r\n",user_id_.size(),user_id_.c_str(),file_name_.size(),file_name_.c_str());
 
     //计算id_and_file的长度，一共5位，不够的补0
     int zero_bit = 5 - JudgeNumberBit(strlen(id_and_file));//先求出零的位数
@@ -120,13 +121,29 @@ std::vector<std::string> DownloadFile::ReciveBlockList(int sockfd){
         block_number_temp--;
     }
 
+    //将接受到的分块列表输出
     for(auto it = md5_block_vector.begin(); it != md5_block_vector.end(); ++it){
         std::cout<<"md5_block_vector--md5:"<<(*it)<<std::endl;
     }
     return md5_block_vector;
 }
 
-void DownloadFile::DownloadBlockFile(std::vector<std::string> &block_list){
+void DownloadFile::DownloadBlockFile(std::vector<std::string> &block_vector,std::string server_ip,int port){
+    int offset = 1;
+    ThreadPool pool(10);
+    for(auto it = block_vector.begin(); it != block_vector.end(); ++it,offset++){
+        DownloadTask task;
+        //task.process(file_name_,offset++,*it,server_ip,port);
+        pool.addTask(std::bind(&DownloadTask::process,&task,file_name_,offset,*it,server_ip,port));
+    }
+    while(1){    
+        if (pool.size() == 0){  
+            pool.stop();
+            printf("Now I will exit from main\n"); 
+            return;
+        }  
+        //sleep(2);
+    }
     return;
 }
 //合并文件
